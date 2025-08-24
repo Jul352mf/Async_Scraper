@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 import structlog
 
-from scraper.api.middleware.auth import get_api_key
+from scraper.api.middleware.auth import get_current_api_key
 from scraper.api.job_manager import get_job_manager
 from scraper.api.models.scrape import (
     CompanyScrapingRequest, 
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/api/v1/enhanced", tags=["enhanced-scraping"])
 async def scrape_companies_with_javascript(
     request: CompanyScrapingRequest,
     background_tasks: BackgroundTasks,
-    api_key: str = Depends(get_api_key)
+    api_key: str = Depends(get_current_api_key)
 ) -> ScrapingJobResponse:
     """
     Create a job to scrape companies using JavaScript-enabled browser automation.
@@ -81,7 +81,7 @@ async def scrape_companies_with_javascript(
 async def scrape_domains_with_javascript(
     request: DomainScrapingRequest,
     background_tasks: BackgroundTasks,
-    api_key: str = Depends(get_api_key)
+    api_key: str = Depends(get_current_api_key)
 ) -> ScrapingJobResponse:
     """
     Create a job to scrape domains using JavaScript-enabled browser automation.
@@ -285,7 +285,7 @@ async def _process_domains_with_js(job_id: str, config: Dict[str, Any]) -> None:
 async def capture_screenshot(
     url: str,
     full_page: bool = True,
-    api_key: str = Depends(get_api_key)
+    api_key: str = Depends(get_current_api_key)
 ) -> Dict[str, Any]:
     """
     Take a screenshot of a webpage using browser automation.
@@ -320,7 +320,7 @@ async def capture_pdf(
     url: str,
     format: str = "A4",
     landscape: bool = False,
-    api_key: str = Depends(get_api_key)
+    api_key: str = Depends(get_current_api_key)
 ) -> Dict[str, Any]:
     """
     Generate a PDF of a webpage using browser automation.
@@ -352,7 +352,7 @@ async def capture_pdf(
 
 
 @router.get("/browser/stats")
-async def get_browser_stats(api_key: str = Depends(get_api_key)) -> Dict[str, Any]:
+async def get_browser_stats(api_key: str = Depends(get_current_api_key)) -> Dict[str, Any]:
     """
     Get browser and capture service statistics.
     """

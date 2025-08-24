@@ -74,8 +74,23 @@ class ProxyConfig(BaseModel):
     
     enabled: bool = Field(False, description="Enable proxy usage")
     proxy_urls: List[str] = Field(default=[], description="List of proxy URLs")
-    rotate_proxies: bool = Field(True, description="Rotate between proxies")
-    proxy_timeout: float = Field(30.0, description="Proxy timeout in seconds")
+    rotation_strategy: str = Field("round_robin", description="Proxy rotation strategy")
+    health_check_interval: int = Field(300, description="Health check interval in seconds")
+    health_check_timeout: int = Field(10, description="Health check timeout in seconds")
+    health_check_url: str = Field("http://httpbin.org/ip", description="URL for health checks")
+    max_consecutive_failures: int = Field(3, description="Max failures before blacklisting")
+    blacklist_duration: int = Field(1800, description="Blacklist duration in seconds")
+    fallback_to_direct: bool = Field(True, description="Fallback to direct connection")
+    retry_failed_proxies: bool = Field(True, description="Retry failed proxies after cooldown")
+    geographic_preference: Optional[str] = Field(None, description="Preferred proxy country")
+    
+    @field_validator("rotation_strategy")
+    @classmethod
+    def validate_rotation_strategy(cls, v):
+        valid_strategies = ["round_robin", "random", "least_used", "fastest", "geographic"]
+        if v.lower() not in valid_strategies:
+            raise ValueError(f"Rotation strategy must be one of {valid_strategies}")
+        return v.lower()
 
 
 class EmailConfig(BaseModel):

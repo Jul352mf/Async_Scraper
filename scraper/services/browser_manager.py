@@ -16,6 +16,7 @@ import structlog
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
+from scraper.core.proxy import ProxyManager
 
 logger = get_logger(__name__)
 
@@ -158,12 +159,13 @@ class BrowserPool:
 class BrowserManager:
     """High-level browser manager for scraping operations."""
     
-    def __init__(self):
+    def __init__(self, proxy_manager: Optional[ProxyManager] = None):
         self.config = get_config()
         self.pool = BrowserPool(
             max_browsers=self.config.browser.max_browsers,
             max_contexts_per_browser=self.config.browser.max_contexts_per_browser
         )
+        self.proxy_manager = proxy_manager
         self._cleanup_task: Optional[asyncio.Task] = None
         
     async def start(self) -> None:
@@ -192,7 +194,7 @@ class BrowserManager:
         browser_type: BrowserType = BrowserType.CHROMIUM,
         context_options: Optional[Dict[str, Any]] = None
     ) -> AsyncContextManager[Page]:
-        """Get a browser page with automatic cleanup."""
+        """Get a browser page with automatic cleanup and proxy support."""
         browser = await self.pool.get_browser(browser_type)
         
         # Create context with default options
@@ -205,6 +207,14 @@ class BrowserManager:
             "ignore_https_errors": True,
             "java_script_enabled": True,
         }
+        
+        # Add proxy configuration if available
+        if self.proxy_manager:
+            proxy = await self.proxy_manager.get_next_proxy()
+            if proxy:
+                proxy_config = proxy.to_dict(include_credentials=True)
+                default_context_options["proxy"] = proxy_config
+                logger.debug("Using proxy for browser context", proxy_id=proxy.id, proxy_host=proxy.effective_host)
         
         if context_options:
             default_context_options.update(context_options)

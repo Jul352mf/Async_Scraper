@@ -11,10 +11,11 @@ from scraper.core.config import Config
 from scraper.core.logger import get_logger
 from scraper.core.cache.cache_utils import CacheManager
 from scraper.core.utils.rate_limit import RateLimiter, get_domain_rate_limiter
+from scraper.core.proxy import ProxyManager, ProxyConfig, ProxyRotationStrategy
 
 
 class WebClient:
-    """Async web client with rate limiting, caching, and retry logic."""
+    """Async web client with rate limiting, caching, and proxy support."""
     
     def __init__(self, config: Config):
         """Initialize the web client."""
@@ -22,6 +23,13 @@ class WebClient:
         self.logger = get_logger("web_client")
         self.cache_manager = CacheManager()
         self.rate_limiter = get_domain_rate_limiter()
+        
+        # Initialize proxy manager if enabled
+        self._proxy_manager: Optional[ProxyManager] = None
+        if config.proxy.enabled and config.proxy.proxy_urls:
+            from scraper.core.proxy.models import ProxyConfig as ProxyConfigModel
+            proxy_config = ProxyConfigModel(**config.proxy.model_dump())
+            self._proxy_manager = ProxyManager.from_urls(config.proxy.proxy_urls, proxy_config)
         
         # HTTP session will be created on first use
         self._session: Optional[aiohttp.ClientSession] = None
@@ -45,13 +53,22 @@ class WebClient:
         
         return self._session
     
+    async def initialize(self) -> None:
+        """Initialize the web client and proxy manager."""
+        if self._proxy_manager:
+            await self._proxy_manager.initialize()
+            self.logger.info("Initialized proxy manager with proxies", count=len(self._proxy_manager.list_proxies()))
+    
     async def close(self) -> None:
-        """Close the HTTP session."""
+        """Close the HTTP session and proxy manager."""
         if self._session and not self._session.closed:
             await self._session.close()
+        
+        if self._proxy_manager:
+            await self._proxy_manager.shutdown()
     
-    async def fetch_page(self, url: str, domain: str) -> Optional[Dict[str, Any]]:
-        """Fetch a single page with rate limiting and caching."""
+    async def fetch_page(self, url: str, domain: str, retry_count: int = 0) -> Optional[Dict[str, Any]]:
+        """Fetch a single page with rate limiting, caching, and proxy support."""
         # Check cache first
         cache_key = f"page:{url}"
         cached_result = await self.cache_manager.get(cache_key)
@@ -64,10 +81,29 @@ class WebClient:
         
         session = await self._get_session()
         
+        # Get proxy if enabled
+        proxy = None
+        proxy_url = None
+        if self._proxy_manager:
+            proxy = await self._proxy_manager.get_next_proxy()
+            if proxy:
+                if proxy.username and proxy.password:
+                    proxy_url = f"{proxy.effective_proxy_type.value}://{proxy.username}:{proxy.password}@{proxy.effective_host}:{proxy.effective_port}"
+                else:
+                    proxy_url = f"{proxy.effective_proxy_type.value}://{proxy.effective_host}:{proxy.effective_port}"
+                self.logger.debug("Using proxy for request", url=url, proxy_id=proxy.id, proxy_host=proxy.effective_host)
+        
+        max_retries = self.config.concurrency.retry_max_attempts
+        
         try:
-            self.logger.debug("Fetching page", url=url)
+            self.logger.debug("Fetching page", url=url, proxy_used=proxy_url is not None)
             
-            async with session.get(url) as response:
+            # Make request with or without proxy
+            request_kwargs = {'url': url}
+            if proxy_url:
+                request_kwargs['proxy'] = proxy_url
+            
+            async with session.get(**request_kwargs) as response:
                 if response.status == 200:
                     content = await response.text()
                     content_type = response.headers.get('Content-Type', '')
@@ -78,37 +114,68 @@ class WebClient:
                         'status_code': response.status,
                         'content_type': content_type,
                         'headers': dict(response.headers),
-                        'fetched_at': time.time()
+                        'fetched_at': time.time(),
+                        'proxy_used': proxy.id if proxy else None
                     }
                     
                     # Cache successful responses
                     await self.cache_manager.set(cache_key, result, ttl=3600)  # 1 hour TTL
                     
-                    # Record success for rate limiting
+                    # Record success for rate limiting and proxy
                     await self.rate_limiter.record_success(domain)
+                    if proxy:
+                        proxy.update_health(success=True)
                     
                     self.logger.debug("Page fetched successfully", 
                                     url=url, 
-                                    content_length=len(content))
+                                    content_length=len(content),
+                                    proxy_used=proxy.id if proxy else None)
                     
                     return result
                     
                 else:
-                    # Record failure for rate limiting
+                    # Record failure for rate limiting and proxy
                     await self.rate_limiter.record_failure(domain, response.status)
+                    if proxy:
+                        proxy.update_health(success=False, error=f"HTTP {response.status}")
                     
                     self.logger.warning("HTTP error fetching page", 
                                       url=url, 
-                                      status_code=response.status)
+                                      status_code=response.status,
+                                      proxy_used=proxy.id if proxy else None)
+                    
+                    # Retry with different proxy or without proxy if enabled
+                    if retry_count < max_retries and self.config.proxy.fallback_to_direct:
+                        return await self.fetch_page(url, domain, retry_count + 1)
+                    
                     return None
                     
-        except asyncio.TimeoutError:
+        except (asyncio.TimeoutError, aiohttp.ClientError) as e:
             await self.rate_limiter.record_failure(domain)
-            self.logger.error("Timeout fetching page", url=url)
+            if proxy:
+                proxy.update_health(success=False, error=str(e))
+            
+            self.logger.error("Error fetching page", 
+                            url=url, 
+                            error=str(e),
+                            proxy_used=proxy.id if proxy else None)
+            
+            # Retry with different proxy or without proxy if enabled
+            if retry_count < max_retries:
+                if self._proxy_manager and retry_count == 0:
+                    # Try with a different proxy first
+                    return await self.fetch_page(url, domain, retry_count + 1)
+                elif self.config.proxy.fallback_to_direct and retry_count < max_retries:
+                    # Fallback to direct connection
+                    self.logger.debug("Falling back to direct connection", url=url)
+                    return await self.fetch_page(url, domain, retry_count + 1)
+            
             return None
         except Exception as e:
             await self.rate_limiter.record_failure(domain)
-            self.logger.error("Error fetching page", url=url, error=str(e))
+            if proxy:
+                proxy.update_health(success=False, error=str(e))
+            self.logger.error("Unexpected error fetching page", url=url, error=str(e))
             return None
     
     async def fetch_domain_pages(self, domain: str) -> List[Dict[str, Any]]:

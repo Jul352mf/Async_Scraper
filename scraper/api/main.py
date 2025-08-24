@@ -14,7 +14,7 @@ import structlog
 
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
-from scraper.api.routes import health, scrape, jobs, websocket, enhanced
+from scraper.api.routes import health, scrape, jobs, websocket, proxy
 from scraper.api.middleware.auth import AuthMiddleware
 from scraper.api.middleware.rate_limit import RateLimitMiddleware
 
@@ -30,6 +30,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Startup logic
     try:
+        # Initialize proxy manager if enabled
+        if config.proxy.enabled and config.proxy.proxy_urls:
+            from scraper.core.proxy import ProxyManager
+            from scraper.core.proxy.models import ProxyConfig as ProxyConfigModel
+            from scraper.api.routes.proxy import set_proxy_manager
+            
+            proxy_config = ProxyConfigModel(**config.proxy.model_dump())
+            proxy_manager = ProxyManager.from_urls(config.proxy.proxy_urls, proxy_config)
+            await proxy_manager.initialize()
+            set_proxy_manager(proxy_manager)
+            logger.info("Proxy manager initialized", proxy_count=len(proxy_manager.list_proxies()))
+        
         # Initialize browser manager if JavaScript support is enabled
         if config.browser.enabled:
             from scraper.services.browser_manager import get_browser_manager
@@ -43,6 +55,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
     finally:
         # Cleanup logic
+        if config.proxy.enabled:
+            from scraper.api.routes.proxy import get_proxy_manager
+            try:
+                proxy_manager = get_proxy_manager()
+                await proxy_manager.shutdown()
+                logger.info("Proxy manager cleaned up")
+            except Exception as e:
+                logger.warning("Error cleaning up proxy manager", error=str(e))
+        
         if config.browser.enabled:
             from scraper.services.browser_manager import cleanup_browser_manager
             await cleanup_browser_manager()
@@ -102,7 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(scrape.router)
     app.include_router(jobs.router)
     app.include_router(websocket.router)
-    app.include_router(enhanced.router)
+    app.include_router(proxy.router)
 
     return app
 
