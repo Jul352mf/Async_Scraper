@@ -30,6 +30,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Startup logic
     try:
+        # Initialize database and run migrations
+        if config.database.auto_migrate:
+            from scraper.database import get_database_manager, run_migrations
+            db_manager = get_database_manager()
+            await run_migrations(db_manager)
+            logger.info("Database migrations completed")
+        
+        # Initialize persistent job manager
+        from scraper.api.persistent_job_manager import get_persistent_job_manager
+        await get_persistent_job_manager()
+        logger.info("Persistent job manager initialized")
+        
         # Initialize proxy manager if enabled
         if config.proxy.enabled and config.proxy.proxy_urls:
             from scraper.core.proxy import ProxyManager
@@ -55,6 +67,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
     finally:
         # Cleanup logic
+        from scraper.api.persistent_job_manager import _persistent_job_manager
+        if _persistent_job_manager:
+            await _persistent_job_manager.shutdown()
+            logger.info("Persistent job manager cleaned up")
+        
         if config.proxy.enabled:
             from scraper.api.routes.proxy import get_proxy_manager
             try:

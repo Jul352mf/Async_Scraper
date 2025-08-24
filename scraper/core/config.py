@@ -186,6 +186,29 @@ class ApiConfig(BaseModel):
         return v
 
 
+class DatabaseConfig(BaseModel):
+    """Database configuration."""
+    
+    # Connection settings
+    host: str = Field("localhost", description="Database host")
+    port: int = Field(5432, description="Database port")
+    database: str = Field("async_scraper", description="Database name")
+    user: str = Field("postgres", description="Database user")
+    password: str = Field("", description="Database password")
+    
+    # Connection pool settings
+    min_connections: int = Field(5, description="Minimum connections in pool")
+    max_connections: int = Field(20, description="Maximum connections in pool")
+    command_timeout: float = Field(30.0, description="Command timeout in seconds")
+    
+    # Migration settings
+    auto_migrate: bool = Field(True, description="Run migrations on startup")
+    
+    # SQLite fallback (for development/testing)
+    use_sqlite: bool = Field(False, description="Use SQLite instead of PostgreSQL")
+    sqlite_path: str = Field("data/async_scraper.db", description="SQLite database file path")
+
+
 class LoggingConfig(BaseModel):
     """Logging configuration."""
     
@@ -220,6 +243,7 @@ class Config(BaseSettings):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     
     # Input/Output settings
