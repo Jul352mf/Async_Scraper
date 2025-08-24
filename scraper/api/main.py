@@ -14,7 +14,7 @@ import structlog
 
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
-from scraper.api.routes import health, scrape, jobs, websocket
+from scraper.api.routes import health, scrape, jobs, websocket, enhanced
 from scraper.api.middleware.auth import AuthMiddleware
 from scraper.api.middleware.rate_limit import RateLimitMiddleware
 
@@ -30,7 +30,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Startup logic
     try:
-        # Initialize database connections, caches, etc.
+        # Initialize browser manager if JavaScript support is enabled
+        if config.browser.enabled:
+            from scraper.services.browser_manager import get_browser_manager
+            await get_browser_manager()
+            logger.info("Browser manager initialized")
+        
         logger.info("API startup completed successfully")
         yield
     except Exception as e:
@@ -38,6 +43,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
     finally:
         # Cleanup logic
+        if config.browser.enabled:
+            from scraper.services.browser_manager import cleanup_browser_manager
+            await cleanup_browser_manager()
+            logger.info("Browser manager cleaned up")
+        
         logger.info("Shutting down Async Scraper API")
 
 
@@ -92,6 +102,7 @@ def create_app() -> FastAPI:
     app.include_router(scrape.router)
     app.include_router(jobs.router)
     app.include_router(websocket.router)
+    app.include_router(enhanced.router)
 
     return app
 

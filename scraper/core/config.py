@@ -51,6 +51,11 @@ class ScrapingConfig(BaseModel):
         description="List of user agents to rotate"
     )
     
+    @property
+    def user_agent(self) -> str:
+        """Get the first user agent as default."""
+        return self.user_agents[0] if self.user_agents else "Mozilla/5.0 AsyncScraper/1.0"
+    
     timeout: float = Field(30.0, description="Request timeout in seconds")
     max_redirects: int = Field(10, description="Maximum redirects to follow")
     
@@ -85,6 +90,87 @@ class EmailConfig(BaseModel):
     min_confidence_score: float = Field(0.7, description="Minimum confidence score for emails")
 
 
+class BrowserConfig(BaseModel):
+    """Browser and JavaScript scraping configuration."""
+    
+    enabled: bool = Field(True, description="Enable browser-based scraping")
+    browser_type: str = Field("chromium", description="Browser type (chromium, firefox, webkit)")
+    headless: bool = Field(True, description="Run browser in headless mode")
+    show_browser: bool = Field(False, description="Show browser window (overrides headless)")
+    
+    max_browsers: int = Field(3, description="Maximum number of browser instances")
+    max_contexts_per_browser: int = Field(10, description="Maximum contexts per browser")
+    
+    timeout: float = Field(60.0, description="Browser operation timeout in seconds")
+    navigation_timeout: float = Field(30.0, description="Page navigation timeout in seconds")
+    
+    viewport_width: int = Field(1920, description="Browser viewport width")
+    viewport_height: int = Field(1080, description="Browser viewport height")
+    
+    load_images: bool = Field(False, description="Load images in browser")
+    javascript_enabled: bool = Field(True, description="Enable JavaScript execution")
+    
+    screenshot_enabled: bool = Field(True, description="Enable screenshot capture")
+    screenshot_format: str = Field("png", description="Screenshot format (png, jpeg)")
+    screenshot_quality: int = Field(80, description="Screenshot quality (1-100)")
+    
+    pdf_enabled: bool = Field(True, description="Enable PDF generation")
+    pdf_format: str = Field("A4", description="PDF paper format")
+    
+    @field_validator("browser_type")
+    @classmethod
+    def validate_browser_type(cls, v):
+        valid_types = ["chromium", "firefox", "webkit"]
+        if v.lower() not in valid_types:
+            raise ValueError(f"Browser type must be one of {valid_types}")
+        return v.lower()
+    
+    @field_validator("screenshot_format")
+    @classmethod
+    def validate_screenshot_format(cls, v):
+        valid_formats = ["png", "jpeg"]
+        if v.lower() not in valid_formats:
+            raise ValueError(f"Screenshot format must be one of {valid_formats}")
+        return v.lower()
+
+
+class ApiConfig(BaseModel):
+    """API server configuration."""
+    
+    host: str = Field("0.0.0.0", description="API server host")
+    port: int = Field(8000, description="API server port")
+    debug: bool = Field(False, description="Enable API debug mode")
+    
+    api_keys: List[str] = Field(
+        default=["test-api-key-123456"],
+        description="Valid API keys for authentication"
+    )
+    
+    rate_limit_per_minute: int = Field(100, description="Requests per minute per API key")
+    rate_limit_burst: int = Field(20, description="Burst limit for rate limiting")
+    
+    cors_origins: List[str] = Field(default=["*"], description="CORS allowed origins")
+    cors_methods: List[str] = Field(default=["GET", "POST", "PUT", "DELETE"], description="CORS allowed methods")
+    
+    docs_enabled: bool = Field(True, description="Enable OpenAPI docs")
+    docs_url: str = Field("/docs", description="OpenAPI docs URL")
+    redoc_url: str = Field("/redoc", description="ReDoc documentation URL")
+    
+    websocket_enabled: bool = Field(True, description="Enable WebSocket support")
+    websocket_path: str = Field("/api/v1/ws", description="WebSocket endpoint path")
+    
+    job_cleanup_interval: int = Field(300, description="Job cleanup interval in seconds")
+    job_max_age: int = Field(86400, description="Maximum job age in seconds before cleanup")
+    
+    @field_validator("api_keys")
+    @classmethod
+    def validate_api_keys(cls, v):
+        for key in v:
+            if len(key) < 8:
+                raise ValueError("API keys must be at least 8 characters long")
+        return v
+
+
 class LoggingConfig(BaseModel):
     """Logging configuration."""
     
@@ -115,8 +201,10 @@ class Config(BaseSettings):
     cache: CacheConfig = Field(default_factory=CacheConfig)
     concurrency: ConcurrencyConfig = Field(default_factory=ConcurrencyConfig)
     scraping: ScrapingConfig = Field(default_factory=ScrapingConfig)
+    browser: BrowserConfig = Field(default_factory=BrowserConfig)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     email: EmailConfig = Field(default_factory=EmailConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     
     # Input/Output settings
