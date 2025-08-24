@@ -200,8 +200,7 @@ class ScraperManager:
             output_path = input_path.parent / f"{input_path.stem}_results.{self.config.output_format}"
         
         # Save using DataSaver
-        await asyncio.to_thread(
-            self.data_saver.save_to_file,
+        await self.data_saver.save_file(
             df_flattened,
             str(output_path),
             self.config.output_format

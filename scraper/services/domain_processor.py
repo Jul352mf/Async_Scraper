@@ -36,7 +36,7 @@ class DomainProcessor:
     
     async def extract_domains(self, company_info: Dict[str, Any]) -> List[str]:
         """Extract potential domains from company information."""
-        domains = set()
+        domains = []
         
         # Get company name and other relevant fields
         company_name = self._get_company_name(company_info)
@@ -47,31 +47,38 @@ class DomainProcessor:
         
         self.logger.debug("Processing company", name=company_name)
         
-        # Check if there's already a domain/website field
+        # FIRST: Check if there's already a domain/website field - prioritize these!
         existing_domain = self._extract_existing_domain(company_info)
         if existing_domain:
-            domains.add(existing_domain)
+            domains.append(existing_domain)
+            self.logger.debug("Using existing domain", domain=existing_domain, company=company_name)
+            # For now, if we have an existing domain, let's just use that
+            # to avoid hitting many non-existent generated domains
+            return [existing_domain]
         
-        # Generate domains from company name
+        # SECOND: Generate domains from company name only if no existing domain
         generated_domains = self._generate_domains_from_name(company_name)
-        domains.update(generated_domains)
         
-        # Convert to list and validate
-        domain_list = list(domains)
+        # Convert to list and validate, but limit to top 3 most likely domains
+        domain_candidates = list(generated_domains)
         validated_domains = []
         
-        for domain in domain_list:
+        for domain in domain_candidates[:5]:  # Limit to top 5 candidates
             if self._is_valid_domain(domain):
                 validated_domains.append(domain)
             else:
                 self.logger.debug("Invalid domain filtered out", domain=domain)
         
+        # Prioritize .com domains first
+        validated_domains.sort(key=lambda d: (not d.endswith('.com'), d))
+        domains.extend(validated_domains[:3])  # Take top 3
+        
         self.logger.debug("Generated domains", 
                          company=company_name,
-                         domains=validated_domains,
-                         count=len(validated_domains))
+                         domains=domains,
+                         count=len(domains))
         
-        return validated_domains
+        return domains
     
     def _get_company_name(self, company_info: Dict[str, Any]) -> str:
         """Extract company name from various possible field names."""
@@ -97,7 +104,8 @@ class DomainProcessor:
         # Common field names for domains/websites
         domain_fields = [
             'domain', 'website', 'url', 'web', 'homepage', 'site',
-            'Domain', 'Website', 'URL', 'Web', 'Homepage', 'Site'
+            'Domain', 'Website', 'URL', 'Web', 'Homepage', 'Site',
+            'Website', 'web_address', 'web_site'  # Additional variations
         ]
         
         for field in domain_fields:
@@ -204,8 +212,8 @@ class DomainProcessor:
         if not domain:
             return False
         
-        # Basic domain validation
-        domain_pattern = r'^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]*\.[a-zA-Z]{2,}$'
+        # Basic domain validation - allow subdomains
+        domain_pattern = r'^[a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\.[a-zA-Z]{2,}$'
         
         # Allow domains without TLD for internal processing
         if '.' not in domain:
