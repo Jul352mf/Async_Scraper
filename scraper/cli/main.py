@@ -146,6 +146,36 @@ def version(ctx: click.Context) -> None:
     click.echo(f"Async Scraper v{__version__}")
 
 
+@cli.command()
+@click.option("--host", default="0.0.0.0", help="Host to bind the server to")
+@click.option("--port", default=8000, help="Port to bind the server to")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+@click.pass_context
+def serve(ctx: click.Context, host: str, port: int, reload: bool) -> None:
+    """Start the API server."""
+    import uvicorn
+    
+    config_obj = ctx.obj["config"]
+    logger = get_logger("cli.serve")
+    
+    logger.info("Starting API server", host=host, port=port, reload=reload)
+    
+    try:
+        uvicorn.run(
+            "scraper.api.main:app",
+            host=host,
+            port=port,
+            reload=reload or config_obj.debug,
+            log_level="debug" if config_obj.debug else "info",
+            access_log=config_obj.debug,
+        )
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+    except Exception as e:
+        logger.error("Server error", error=str(e))
+        sys.exit(1)
+
+
 def main() -> None:
     """Main entry point."""
     cli()
