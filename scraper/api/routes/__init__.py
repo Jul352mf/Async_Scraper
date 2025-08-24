@@ -2,6 +2,6 @@
 Routes package initialization
 """
 
-from . import health
+from . import health, scrape, jobs, websocket
 
-__all__ = ["health"]
+__all__ = ["health", "scrape", "jobs", "websocket"]

@@ -14,7 +14,7 @@ import structlog
 
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
-from scraper.api.routes import health
+from scraper.api.routes import health, scrape, jobs, websocket
 from scraper.api.middleware.auth import AuthMiddleware
 from scraper.api.middleware.rate_limit import RateLimitMiddleware
 
@@ -88,7 +88,10 @@ def create_app() -> FastAPI:
         )
 
     # Include routers
-    app.include_router(health.router, prefix="/api/v1")
+    app.include_router(health.router)
+    app.include_router(scrape.router)
+    app.include_router(jobs.router)
+    app.include_router(websocket.router)
 
     return app
 

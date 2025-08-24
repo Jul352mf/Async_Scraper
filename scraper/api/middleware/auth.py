@@ -19,9 +19,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
     
     # Public endpoints that don't require authentication
     PUBLIC_PATHS = {
-        "/api/v1/health",
+        "/health",
         "/docs",
-        "/redoc",
+        "/redoc", 
         "/openapi.json"
     }
     
@@ -82,3 +82,52 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Placeholder implementation - accept any non-empty key
         # In production, this should validate against a database
         return len(api_key) >= 8
+
+
+def validate_api_key(api_key: str) -> bool:
+    """
+    Validate API key (dependency function).
+    
+    Args:
+        api_key: API key to validate
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    return len(api_key) >= 8
+
+
+def get_current_api_key(request: Request) -> str:
+    """
+    Get and validate the current API key from request.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        str: Validated API key
+        
+    Raises:
+        HTTPException: If API key is missing or invalid
+    """
+    # Check Authorization header (Bearer token)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        api_key = auth_header[7:]  # Remove "Bearer " prefix
+    else:
+        # Check X-API-Key header
+        api_key = request.headers.get("X-API-Key")
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="API key required"
+        )
+    
+    if not validate_api_key(api_key):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key"
+        )
+    
+    return api_key

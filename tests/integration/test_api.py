@@ -15,7 +15,7 @@ class TestHealthEndpoints:
 
     def test_basic_health_check(self):
         """Test the basic health check endpoint."""
-        response = client.get("/api/v1/health")
+        response = client.get("/health")
         assert response.status_code == 200
         
         data = response.json()
@@ -26,7 +26,7 @@ class TestHealthEndpoints:
 
     def test_detailed_health_without_api_key(self):
         """Test detailed health check without API key (should fail)."""
-        response = client.get("/api/v1/health/detailed")
+        response = client.get("/health/detailed")
         assert response.status_code == 401
         
         data = response.json()
@@ -36,7 +36,7 @@ class TestHealthEndpoints:
     def test_detailed_health_with_api_key(self):
         """Test detailed health check with API key."""
         headers = {"X-API-Key": "test-api-key-123456"}
-        response = client.get("/api/v1/health/detailed", headers=headers)
+        response = client.get("/health/detailed", headers=headers)
         assert response.status_code == 200
         
         data = response.json()
@@ -50,7 +50,7 @@ class TestHealthEndpoints:
     def test_detailed_health_with_short_api_key(self):
         """Test detailed health check with invalid (too short) API key."""
         headers = {"X-API-Key": "short"}
-        response = client.get("/api/v1/health/detailed", headers=headers)
+        response = client.get("/health/detailed", headers=headers)
         assert response.status_code == 401
         
         data = response.json()
@@ -90,7 +90,7 @@ class TestMiddleware:
 
     def test_cors_headers(self):
         """Test CORS headers are present."""
-        response = client.get("/api/v1/health")
+        response = client.get("/health")
         assert response.status_code == 200
         # Note: In test client, CORS headers might not be visible
         # This test verifies the endpoint works despite CORS middleware
@@ -116,5 +116,5 @@ class TestErrorHandling:
 
     def test_invalid_method(self):
         """Test invalid HTTP method."""
-        response = client.post("/api/v1/health")
+        response = client.post("/health")
         assert response.status_code == 405
