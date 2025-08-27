@@ -209,6 +209,31 @@ class DatabaseConfig(BaseModel):
     sqlite_path: str = Field("data/async_scraper.db", description="SQLite database file path")
 
 
+class QueueConfig(BaseModel):
+    """Job queue configuration."""
+    
+    # Queue backend selection
+    use_redis: bool = Field(True, description="Use Redis for job queue (false = in-memory)")
+    redis_url: str = Field("redis://localhost:6379/1", description="Redis connection URL for job queue")
+    key_prefix: str = Field("scraper:queue", description="Redis key prefix for job queue")
+    
+    # Worker configuration
+    max_workers: int = Field(5, description="Maximum number of worker processes")
+    worker_timeout: int = Field(600, description="Worker timeout in seconds")
+    heartbeat_interval: int = Field(30, description="Worker heartbeat interval in seconds")
+    
+    # Job configuration
+    default_job_timeout: int = Field(3600, description="Default job timeout in seconds")
+    max_retries: int = Field(3, description="Maximum job retry attempts")
+    retry_delay: int = Field(60, description="Delay between retries in seconds")
+    retry_backoff: float = Field(2.0, description="Exponential backoff multiplier")
+    
+    # Cleanup configuration
+    completed_job_retention: int = Field(86400, description="Completed job retention in seconds")
+    failed_job_retention: int = Field(604800, description="Failed job retention in seconds")
+    cleanup_interval: int = Field(3600, description="Job cleanup interval in seconds")
+
+
 class LoggingConfig(BaseModel):
     """Logging configuration."""
     
@@ -244,6 +269,7 @@ class Config(BaseSettings):
     email: EmailConfig = Field(default_factory=EmailConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    queue: QueueConfig = Field(default_factory=QueueConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     
     # Input/Output settings

@@ -4,7 +4,7 @@ Job queue system for background processing.
 
 import asyncio
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Optional, List, Any, Callable, Set
+from typing import Dict, Optional, List, Any, Callable, Set, Union
 from uuid import uuid4
 from enum import Enum
 import structlog
@@ -387,3 +387,16 @@ def get_job_queue() -> JobQueue:
             max_queue_size=config.concurrency.max_queue_size,
         )
     return _job_queue
+
+
+# Import Redis queue for production use
+from .redis_queue import RedisJobQueue, create_redis_job_queue
+
+__all__ = [
+    "JobPriority",
+    "QueuedJob", 
+    "JobQueue",
+    "get_job_queue",
+    "RedisJobQueue",
+    "create_redis_job_queue",
+]

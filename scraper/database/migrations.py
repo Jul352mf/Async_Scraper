@@ -38,88 +38,148 @@ class InitialMigration(Migration):
         """Create initial database schema."""
         logger.info("Creating initial database schema")
         
+        # Determine if we're using SQLite
+        is_sqlite = db.config.database.use_sqlite
+        
         # Create migrations tracking table first
         await db.execute("""
             CREATE TABLE IF NOT EXISTS migrations (
-                id SERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL UNIQUE,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
                 version INTEGER NOT NULL,
-                applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
         # Create jobs table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id VARCHAR(36) PRIMARY KEY,
-                type VARCHAR(50) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                config JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE,
-                started_at TIMESTAMP WITH TIME ZONE,
-                completed_at TIMESTAMP WITH TIME ZONE,
-                progress JSONB DEFAULT '{}',
-                error_message TEXT,
-                result_count INTEGER,
-                
-                -- Indexes for common queries
-                INDEX idx_jobs_status (status),
-                INDEX idx_jobs_type (type),
-                INDEX idx_jobs_created_at (created_at),
-                INDEX idx_jobs_updated_at (updated_at)
-            )
-        """)
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    config TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP,
+                    started_at TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    progress TEXT DEFAULT '{}',
+                    error_message TEXT,
+                    result_count INTEGER
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    type VARCHAR(50) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    config JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE,
+                    started_at TIMESTAMP WITH TIME ZONE,
+                    completed_at TIMESTAMP WITH TIME ZONE,
+                    progress JSONB DEFAULT '{}',
+                    error_message TEXT,
+                    result_count INTEGER
+                )
+            """)
+        
+        # Create indexes for jobs table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(type)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)")
         
         # Create job_results table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS job_results (
-                id VARCHAR(36) PRIMARY KEY,
-                job_id VARCHAR(36) NOT NULL,
-                result_type VARCHAR(20) NOT NULL,
-                data JSONB NOT NULL,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                
-                -- Foreign key
-                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
-                
-                -- Indexes
-                INDEX idx_job_results_job_id (job_id),
-                INDEX idx_job_results_type (result_type),
-                INDEX idx_job_results_created_at (created_at)
-            )
-        """)
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS job_results (
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    result_type TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS job_results (
+                    id VARCHAR(36) PRIMARY KEY,
+                    job_id VARCHAR(36) NOT NULL,
+                    result_type VARCHAR(20) NOT NULL,
+                    data JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+        
+        # Add foreign key constraint (PostgreSQL only - SQLite has it in table definition)
+        if not is_sqlite:
+            await db.execute("""
+                ALTER TABLE job_results 
+                ADD CONSTRAINT IF NOT EXISTS fk_job_results_job_id 
+                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+            """)
+        
+        # Create indexes for job_results table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_results_job_id ON job_results(job_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_results_type ON job_results(result_type)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_results_created_at ON job_results(created_at)")
         
         # Create proxies table
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS proxies (
-                id VARCHAR(36) PRIMARY KEY,
-                url VARCHAR(500) NOT NULL UNIQUE,
-                description TEXT,
-                username VARCHAR(255),
-                password VARCHAR(255),
-                country VARCHAR(2),
-                tags JSONB DEFAULT '[]',
-                is_active BOOLEAN DEFAULT true,
-                health_status VARCHAR(20) DEFAULT 'unknown',
-                success_rate FLOAT DEFAULT 0.0,
-                avg_response_time FLOAT,
-                last_used TIMESTAMP WITH TIME ZONE,
-                last_health_check TIMESTAMP WITH TIME ZONE,
-                consecutive_failures INTEGER DEFAULT 0,
-                is_blacklisted BOOLEAN DEFAULT false,
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                updated_at TIMESTAMP WITH TIME ZONE,
-                
-                -- Indexes
-                INDEX idx_proxies_active (is_active),
-                INDEX idx_proxies_health_status (health_status),
-                INDEX idx_proxies_country (country),
-                INDEX idx_proxies_success_rate (success_rate),
-                INDEX idx_proxies_is_blacklisted (is_blacklisted),
-                INDEX idx_proxies_last_health_check (last_health_check)
-            )
-        """)
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS proxies (
+                    id TEXT PRIMARY KEY,
+                    url TEXT NOT NULL UNIQUE,
+                    description TEXT,
+                    username TEXT,
+                    password TEXT,
+                    country TEXT,
+                    tags TEXT DEFAULT '[]',
+                    is_active INTEGER DEFAULT 1,
+                    health_status TEXT DEFAULT 'unknown',
+                    success_rate REAL DEFAULT 0.0,
+                    avg_response_time REAL,
+                    last_used TIMESTAMP,
+                    last_health_check TIMESTAMP,
+                    consecutive_failures INTEGER DEFAULT 0,
+                    is_blacklisted INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS proxies (
+                    id VARCHAR(36) PRIMARY KEY,
+                    url VARCHAR(500) NOT NULL UNIQUE,
+                    description TEXT,
+                    username VARCHAR(255),
+                    password VARCHAR(255),
+                    country VARCHAR(2),
+                    tags JSONB DEFAULT '[]',
+                    is_active BOOLEAN DEFAULT true,
+                    health_status VARCHAR(20) DEFAULT 'unknown',
+                    success_rate FLOAT DEFAULT 0.0,
+                    avg_response_time FLOAT,
+                    last_used TIMESTAMP WITH TIME ZONE,
+                    last_health_check TIMESTAMP WITH TIME ZONE,
+                    consecutive_failures INTEGER DEFAULT 0,
+                    is_blacklisted BOOLEAN DEFAULT false,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )
+            """)
+        
+        # Create indexes for proxies table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_active ON proxies(is_active)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_health_status ON proxies(health_status)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_country ON proxies(country)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_success_rate ON proxies(success_rate)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_is_blacklisted ON proxies(is_blacklisted)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_last_health_check ON proxies(last_health_check)")
         
         logger.info("Initial database schema created successfully")
     
@@ -174,15 +234,32 @@ async def run_migrations(db: DatabaseManager) -> None:
             
             # Use transaction for each migration
             async with db.get_connection() as conn:
-                async with conn.transaction():
-                    await migration.up(db)
-                    
-                    # Record migration
-                    await conn.execute(
-                        "INSERT INTO migrations (name, version) VALUES ($1, $2)",
-                        migration.name,
-                        migration.version,
-                    )
+                if db.config.database.use_sqlite:
+                    # SQLite transactions
+                    await conn.execute("BEGIN")
+                    try:
+                        await migration.up(db)
+                        
+                        # Record migration
+                        await conn.execute(
+                            "INSERT INTO migrations (name, version) VALUES (?, ?)",
+                            (migration.name, migration.version)
+                        )
+                        await conn.execute("COMMIT")
+                    except Exception:
+                        await conn.execute("ROLLBACK")
+                        raise
+                else:
+                    # PostgreSQL transactions
+                    async with conn.transaction():
+                        await migration.up(db)
+                        
+                        # Record migration
+                        await conn.execute(
+                            "INSERT INTO migrations (name, version) VALUES ($1, $2)",
+                            migration.name,
+                            migration.version,
+                        )
             
             logger.info("Migration applied successfully", name=migration.name, version=migration.version)
         
@@ -221,15 +298,32 @@ async def rollback_migration(db: DatabaseManager, target_version: int = 0) -> No
             logger.info("Rolling back migration", name=migration.name, version=migration.version)
             
             async with db.get_connection() as conn:
-                async with conn.transaction():
-                    await migration.down(db)
-                    
-                    # Remove migration record
-                    await conn.execute(
-                        "DELETE FROM migrations WHERE name = $1 AND version = $2",
-                        migration.name,
-                        migration.version,
-                    )
+                if db.config.database.use_sqlite:
+                    # SQLite transactions
+                    await conn.execute("BEGIN")
+                    try:
+                        await migration.down(db)
+                        
+                        # Remove migration record
+                        await conn.execute(
+                            "DELETE FROM migrations WHERE name = ? AND version = ?",
+                            (migration.name, migration.version)
+                        )
+                        await conn.execute("COMMIT")
+                    except Exception:
+                        await conn.execute("ROLLBACK")
+                        raise
+                else:
+                    # PostgreSQL transactions
+                    async with conn.transaction():
+                        await migration.down(db)
+                        
+                        # Remove migration record
+                        await conn.execute(
+                            "DELETE FROM migrations WHERE name = $1 AND version = $2",
+                            migration.name,
+                            migration.version,
+                        )
             
             logger.info("Migration rolled back successfully", name=migration.name, version=migration.version)
         

@@ -4,7 +4,7 @@ Persistent Job Manager with database integration and job queue support.
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, Optional, List, Any, Callable
+from typing import Dict, Optional, List, Any, Callable, Union
 from uuid import uuid4
 import structlog
 
@@ -12,8 +12,9 @@ from scraper.api.models import Job, JobStatus, JobType, JobProgress, DomainResul
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
 from scraper.services.scraper_manager import ScraperManager
-from scraper.database import DatabaseManager, get_database_manager, JobModel, JobResultModel
+from scraper.database import DatabaseManager, get_database_manager, JobModel, JobResultModel, run_migrations
 from scraper.queue import JobQueue, QueuedJob, JobPriority, get_job_queue
+from scraper.queue.redis_queue import RedisJobQueue, create_redis_job_queue
 
 logger = get_logger(__name__)
 
@@ -23,9 +24,20 @@ class PersistentJobManager:
     
     def __init__(self):
         self.db = get_database_manager()
-        self.queue = get_job_queue()
-        self.progress_callbacks: Dict[str, List[Callable]] = {}
         self.config = get_config()
+        
+        # Choose queue backend based on configuration
+        if self.config.queue.use_redis:
+            self.queue = create_redis_job_queue(
+                redis_url=self.config.queue.redis_url,
+                max_workers=self.config.queue.max_workers
+            )
+            logger.info("Using Redis job queue backend")
+        else:
+            self.queue = get_job_queue()
+            logger.info("Using in-memory job queue backend")
+        
+        self.progress_callbacks: Dict[str, List[Callable]] = {}
         self.scraper_manager = ScraperManager()
         
         # Register job handlers
@@ -38,16 +50,41 @@ class PersistentJobManager:
     
     async def initialize(self) -> None:
         """Initialize the job manager."""
+        # Initialize database and run migrations
         await self.db.initialize()
+        
+        if self.config.database.auto_migrate:
+            await run_migrations(self.db)
+        
+        # Initialize job queue
         await self.queue.start()
         
-        # Load pending jobs from database
-        await self._load_pending_jobs()
+        # Load pending jobs from database if using Redis (in-memory already handles this)
+        if self.config.queue.use_redis:
+            await self._load_pending_jobs()
         
         logger.info("Persistent job manager initialized")
     
     async def shutdown(self) -> None:
         """Shutdown the job manager."""
+        try:
+            await self.queue.stop()
+            await self.db.close()
+            logger.info("Persistent job manager shutdown completed")
+
+
+# Global persistent job manager instance
+_persistent_job_manager: Optional[PersistentJobManager] = None
+
+
+def get_persistent_job_manager() -> PersistentJobManager:
+    """Get the global persistent job manager instance."""
+    global _persistent_job_manager
+    if _persistent_job_manager is None:
+        _persistent_job_manager = PersistentJobManager()
+    return _persistent_job_manager
+        except Exception as e:
+            logger.error("Error during job manager shutdown", error=str(e))
         await self.queue.stop()
         await self.db.close()
         logger.info("Persistent job manager shutdown")
