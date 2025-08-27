@@ -55,6 +55,47 @@ except Exception as e:
     raise
 ```
 
+#### Database Operations Pattern
+```python
+from scraper.database import get_database_manager, run_migrations
+from scraper.database.models import JobModel
+
+# Database initialization with migrations
+db = get_database_manager()
+await db.initialize()
+await run_migrations(db)
+
+# Model operations
+job_data = await db.fetchrow("SELECT * FROM jobs WHERE id = $1", job_id)
+job_model = JobModel.from_dict(job_data)
+api_job = job_model.to_api_model()
+```
+
+#### Job Queue Pattern
+```python
+from scraper.queue import QueuedJob, JobPriority
+from scraper.api.persistent_job_manager import get_persistent_job_manager
+
+# Get job manager (auto-selects Redis or in-memory backend)
+job_manager = get_persistent_job_manager()
+await job_manager.initialize()
+
+# Create and enqueue job
+job = QueuedJob(
+    id=str(uuid4()),
+    job_type="scrape_companies", 
+    config={"companies": ["Google"]},
+    priority=JobPriority.HIGH,
+    max_retries=3,
+    depends_on=["prerequisite-job-id"]
+)
+await job_manager.queue.enqueue(job)
+
+# Monitor job status
+status = await job_manager.queue.get_job_status(job_id)
+stats = await job_manager.queue.get_queue_stats()
+```
+
 #### Configuration Access
 ```python
 # Always use the global config or pass config explicitly
@@ -183,12 +224,55 @@ def test_websocket_subscription(client):
         assert data["type"] == "subscription_confirmed"
 ```
 
+#### Database & Queue Testing
+```python
+@pytest.fixture
+async def test_db():
+    """Create test database with SQLite."""
+    config = Config()
+    config.database.use_sqlite = True
+    config.database.sqlite_path = "/tmp/test.db"
+    
+    db = DatabaseManager()
+    db.config = config
+    await db.initialize()
+    await run_migrations(db)
+    
+    try:
+        yield db
+    finally:
+        await db.close()
+
+@pytest.mark.asyncio
+async def test_job_queue():
+    """Test job queue functionality."""
+    queue = JobQueue(max_workers=2)
+    
+    async def test_handler(config):
+        return {"result": "success"}
+    
+    queue.register_handler("test_job", test_handler)
+    await queue.start()
+    
+    try:
+        job = QueuedJob("test-123", "test_job", {})
+        await queue.enqueue(job)
+        
+        # Wait and verify
+        await asyncio.sleep(0.5)
+        status = queue.get_job_status(job.id)
+        assert status["status"] == "completed"
+    finally:
+        await queue.stop()
+```
+
 #### Mock External Services
 - Use `aioresponses` for HTTP mocking
 - Mock Redis connections when Redis cache is involved  
 - Use temporary files for file I/O testing
 - Use `TestClient` for API endpoint testing
 - Mock WebSocket connections for real-time feature testing
+- Use SQLite with temporary files for database testing
 
 ### File Organization Rules
 - **Core functionality** goes in `scraper/core/`
@@ -257,9 +341,9 @@ def test_websocket_subscription(client):
 ## Current Sprint Status (Phase 2)
 - ✅ **Sprint 1**: API Foundation - FastAPI server with authentication
 - ✅ **Sprint 2**: Core API Endpoints - Job management and WebSocket support
-- 🔄 **Sprint 3**: JavaScript Support - Playwright integration (in progress)
-- ⏳ **Sprint 4**: Proxy Support System
-- ⏳ **Sprint 5**: Database & Job Queue Integration
+- ✅ **Sprint 3**: JavaScript Support - Playwright integration  
+- ✅ **Sprint 4**: Proxy Support System - Comprehensive proxy infrastructure
+- ✅ **Sprint 5**: Database & Job Queue Integration - Redis queue and persistence
 - ⏳ **Sprint 6**: Monitoring & Multi-tenancy
 
 ## Integration Points

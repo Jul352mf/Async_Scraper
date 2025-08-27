@@ -246,40 +246,40 @@ This document provides a detailed sprint-by-sprint breakdown of Phase 2 implemen
 ### Tasks
 
 #### Database Setup
-- [ ] **Task 5.1**: Database models and migrations
-  - File: `scraper/core/database/__init__.py`
-  - File: `scraper/core/database/models.py`
-  - File: `scraper/core/database/migrations/`
+- [x] **Task 5.1**: Database models and migrations
+  - File: `scraper/database/__init__.py`
+  - File: `scraper/database/models.py`
+  - File: `scraper/database/migrations.py`
   - SQLAlchemy setup with async support
   - Estimated: 2 days
 
-- [ ] **Task 5.2**: Connection pooling and management
-  - File: `scraper/core/database/connection.py`
+- [x] **Task 5.2**: Connection pooling and management
+  - File: `scraper/database/connection.py`
   - Async connection pools
   - Health monitoring
   - Estimated: 1 day
 
 #### Job Queue System
-- [ ] **Task 5.3**: Redis job queue implementation
-  - File: `scraper/core/queue/__init__.py`
-  - File: `scraper/core/queue/redis_queue.py`
+- [x] **Task 5.3**: Redis job queue implementation
+  - File: `scraper/queue/__init__.py`
+  - File: `scraper/queue/redis_queue.py`
   - Job serialization and priority handling
   - Estimated: 2 days
 
-- [ ] **Task 5.4**: Worker process management
-  - File: `scraper/core/queue/worker.py`
+- [x] **Task 5.4**: Worker process management
+  - File: `scraper/queue/worker.py`
   - Async worker processes
   - Job distribution and load balancing
   - Estimated: 2 days
 
-- [ ] **Task 5.5**: Job retry and error handling
+- [x] **Task 5.5**: Job retry and error handling
   - Exponential backoff implementation
   - Dead letter queue for failed jobs
   - Job status persistence
   - Estimated: 1 day
 
 #### Integration
-- [ ] **Task 5.6**: API integration with job queue
+- [x] **Task 5.6**: API integration with job queue
   - Update API endpoints to use queue
   - Job status from database
   - Real-time updates via WebSocket
@@ -287,7 +287,7 @@ This document provides a detailed sprint-by-sprint breakdown of Phase 2 implemen
 
 **Sprint 5 Deliverables:**
 - ✅ PostgreSQL database integrated
-- ✅ Redis job queue operational
+- ✅ Redis job queue operational  
 - ✅ Reliable job processing with retries
 - ✅ Persistent job status and results
 
