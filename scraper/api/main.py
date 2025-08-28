@@ -14,7 +14,11 @@ import structlog
 
 from scraper.core.config import get_config
 from scraper.core.logger import get_logger
+from scraper.core.monitoring import metrics_manager, health_checker, tracer
+from scraper.core.tenant import get_tenant_manager
+from scraper.core.tenant.middleware import TenantMiddleware
 from scraper.api.routes import health, scrape, jobs, websocket, proxy
+from scraper.api.routes.admin import tenants_router, monitoring_router, system_router
 from scraper.api.middleware.auth import AuthMiddleware
 from scraper.api.middleware.rate_limit import RateLimitMiddleware
 
@@ -30,6 +34,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Startup logic
     try:
+        # Initialize monitoring systems first
+        await metrics_manager.initialize()
+        await health_checker.initialize()
+        await tracer.initialize()
+        logger.info("Monitoring systems initialized")
+        
+        # Initialize tenant manager
+        await get_tenant_manager()
+        logger.info("Tenant manager initialized")
+        
         # Initialize database and run migrations
         if config.database.auto_migrate:
             from scraper.database import get_database_manager, run_migrations
@@ -67,6 +81,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         raise
     finally:
         # Cleanup logic
+        logger.info("Starting cleanup...")
+        
+        # Cleanup monitoring systems
+        try:
+            await metrics_manager.cleanup()
+            await health_checker.cleanup()
+            await tracer.cleanup()
+            logger.info("Monitoring systems cleaned up")
+        except Exception as e:
+            logger.warning("Error cleaning up monitoring systems", error=str(e))
+        
+        # Cleanup tenant manager
+        try:
+            from scraper.core.tenant import get_tenant_manager
+            tenant_manager = await get_tenant_manager()
+            await tenant_manager.cleanup()
+            logger.info("Tenant manager cleaned up")
+        except Exception as e:
+            logger.warning("Error cleaning up tenant manager", error=str(e))
+            
+        # Cleanup job manager
         from scraper.api.persistent_job_manager import _persistent_job_manager
         if _persistent_job_manager:
             await _persistent_job_manager.shutdown()
@@ -112,7 +147,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Custom middleware
+    # Custom middleware (order matters!)
+    app.add_middleware(TenantMiddleware)  # Add tenant middleware first
     app.add_middleware(AuthMiddleware)
     app.add_middleware(RateLimitMiddleware)
 
@@ -141,6 +177,11 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(websocket.router)
     app.include_router(proxy.router)
+    
+    # Admin routers
+    app.include_router(tenants_router)
+    app.include_router(monitoring_router)
+    app.include_router(system_router)
 
     return app
 

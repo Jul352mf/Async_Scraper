@@ -195,9 +195,183 @@ class InitialMigration(Migration):
         logger.info("Initial database schema dropped")
 
 
+class TenantMigration(Migration):
+    """Add multi-tenancy support migration."""
+    
+    def __init__(self):
+        super().__init__("add_tenant_support", 2)
+    
+    async def up(self, db: DatabaseManager) -> None:
+        """Add tenant-related tables and columns."""
+        logger.info("Adding tenant support to database schema")
+        
+        # Determine if we're using SQLite
+        is_sqlite = db.config.database.use_sqlite
+        
+        # Create tenants table
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    tenant_id TEXT PRIMARY KEY,
+                    config TEXT NOT NULL,
+                    quotas TEXT NOT NULL,
+                    usage TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tenants (
+                    tenant_id VARCHAR(36) PRIMARY KEY,
+                    config JSONB NOT NULL,
+                    quotas JSONB NOT NULL,
+                    usage JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE
+                )
+            """)
+        
+        # Create indexes for tenants table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tenants_created_at ON tenants(created_at)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_tenants_updated_at ON tenants(updated_at)")
+        
+        # Add tenant_id column to existing tables
+        try:
+            # Add tenant_id to jobs table
+            if is_sqlite:
+                await db.execute("ALTER TABLE jobs ADD COLUMN tenant_id TEXT")
+            else:
+                await db.execute("ALTER TABLE jobs ADD COLUMN tenant_id VARCHAR(36)")
+                
+            # Add tenant_id to job_results table
+            if is_sqlite:
+                await db.execute("ALTER TABLE job_results ADD COLUMN tenant_id TEXT")
+            else:
+                await db.execute("ALTER TABLE job_results ADD COLUMN tenant_id VARCHAR(36)")
+                
+            # Add tenant_id to proxies table
+            if is_sqlite:
+                await db.execute("ALTER TABLE proxies ADD COLUMN tenant_id TEXT")
+            else:
+                await db.execute("ALTER TABLE proxies ADD COLUMN tenant_id VARCHAR(36)")
+                
+        except Exception as e:
+            # Columns might already exist
+            logger.warning("Failed to add tenant_id columns", error=str(e))
+        
+        # Create indexes for tenant_id columns
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_jobs_tenant_id ON jobs(tenant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_results_tenant_id ON job_results(tenant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_proxies_tenant_id ON proxies(tenant_id)")
+        
+        # Create API keys table for tenant authentication
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL,
+                    key_hash TEXT NOT NULL UNIQUE,
+                    name TEXT,
+                    description TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    id VARCHAR(36) PRIMARY KEY,
+                    tenant_id VARCHAR(36) NOT NULL,
+                    key_hash VARCHAR(255) NOT NULL UNIQUE,
+                    name VARCHAR(255),
+                    description TEXT,
+                    is_active BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    last_used TIMESTAMP WITH TIME ZONE,
+                    expires_at TIMESTAMP WITH TIME ZONE
+                )
+            """)
+        
+        # Add foreign key constraint for API keys (PostgreSQL only)
+        if not is_sqlite:
+            await db.execute("""
+                ALTER TABLE api_keys 
+                ADD CONSTRAINT IF NOT EXISTS fk_api_keys_tenant_id 
+                FOREIGN KEY (tenant_id) REFERENCES tenants(tenant_id) ON DELETE CASCADE
+            """)
+        
+        # Create indexes for api_keys table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_id ON api_keys(tenant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_active ON api_keys(is_active)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_expires_at ON api_keys(expires_at)")
+        
+        # Create job_logs table for detailed logging
+        if is_sqlite:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS job_logs (
+                    id TEXT PRIMARY KEY,
+                    job_id TEXT NOT NULL,
+                    tenant_id TEXT,
+                    level TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+                )
+            """)
+        else:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS job_logs (
+                    id VARCHAR(36) PRIMARY KEY,
+                    job_id VARCHAR(36) NOT NULL,
+                    tenant_id VARCHAR(36),
+                    level VARCHAR(20) NOT NULL,
+                    message TEXT NOT NULL,
+                    details JSONB,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                )
+            """)
+        
+        # Add foreign key constraint for job logs (PostgreSQL only)
+        if not is_sqlite:
+            await db.execute("""
+                ALTER TABLE job_logs 
+                ADD CONSTRAINT IF NOT EXISTS fk_job_logs_job_id 
+                FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+            """)
+        
+        # Create indexes for job_logs table
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_job_id ON job_logs(job_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_tenant_id ON job_logs(tenant_id)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_level ON job_logs(level)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_job_logs_created_at ON job_logs(created_at)")
+        
+        logger.info("Tenant support added to database schema successfully")
+    
+    async def down(self, db: DatabaseManager) -> None:
+        """Remove tenant-related tables and columns."""
+        logger.info("Removing tenant support from database schema")
+        
+        # Drop tenant-related tables
+        await db.execute("DROP TABLE IF EXISTS job_logs CASCADE")
+        await db.execute("DROP TABLE IF EXISTS api_keys CASCADE")
+        await db.execute("DROP TABLE IF EXISTS tenants CASCADE")
+        
+        # Remove tenant_id columns (this is tricky in SQLite, so we'll skip it)
+        # In production, you'd want to recreate tables without these columns
+        
+        logger.info("Tenant support removed from database schema")
+
+
 # List of all migrations in order
 MIGRATIONS: List[Migration] = [
     InitialMigration(),
+    TenantMigration(),
 ]
 
 
